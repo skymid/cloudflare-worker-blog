@@ -18,5 +18,10 @@
     "title":"test",
     "time":"2019-06-07",
     "file":"posts/test.md"
-  }  
+  },
+  {
+    "title":"dplayer",
+    "time":"2019-06-07",
+    "file":"yy_dplayer/index.html"
+  }   
 ]
