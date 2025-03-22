@@ -13,5 +13,10 @@
     "title":"文章3",
     "time":"2019-06-07",
     "file":"posts/3.md"
-  } 
+  },
+  {
+    "title":"test",
+    "time":"2019-06-07",
+    "file":"posts/test.md"
+  }  
 ]
