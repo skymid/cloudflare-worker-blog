@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MP4 Video Player with Dynamic File List (DPlayer)</title>
+  <style>
+    body {
+      font-family: sans-serif;
+    }
+    #dplayer {
+      width: 640px;
+      height: 360px;
+    }
+    #fileList {
+      width: 200px;
+      height: 360px;
+      overflow-y: scroll;
+    }
+    #speed-slider-container {
+      margin-top: 10px;
+	  margin-bottom: 20px;
+    }
+    #speed-slider {
+      width: 150px;
+    }
+    #current-speed {
+      margin-left: 10px;
+      font-weight: bold;
+    }
+    #console-output {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background-color: #f9f9f9;
+      white-space: pre-wrap; /* 保留换行符和空格 */
+      font-family: monospace;
+    }
+	input[type="range"] {
+	  width:400px;
+	}
+  </style>
+  <!-- 引入 DPlayer 的 CSS 和 JS 
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">-->
+  <link rel="stylesheet" href="DPlayer.min.css">
+</head>
+<body>
+
+<!-- DPlayer 容器 
+https://dplayer.diygod.dev/zh/guide.html#%E5%8F%82%E6%95%B0
+-->
+<div id="dplayer"></div>
+
+
+<!-- 播放速度滑动条 -->
+<div id="speed-slider-container">
+  <label for="speed-slider">播放速度：</label>
+  <input type="range" id="speed-slider" min="0.5" max="10" step="0.5" value="1">
+  <span id="current-speed">1.0x</span>
+
+  <label for="speed-slider">快进/快退：</label>
+  <input type="range" id="rewind-speed" min="-60" max="120" step="5" value="10" width="120px">
+  <span id="current-rewind">10</span>
+</div>
+
+<!-- 文件列表 -->
+<select id="fileList" size="10"></select>
+
+<!-- 控制台输出区域 -->
+<div id="console-output"></div>
+
+<!-- 引入 DPlayer 的 JavaScript
+<script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script> -->
+<script src="DPlayer.min.js"></script>
+<script>
+  // 初始化 DPlayer 实例
+  const dp = new DPlayer({
+    container: document.getElementById('dplayer'),
+    video: {
+      url: 'ql.mp4', // 初始视频 URL
+      pic: '', // 封面图（可选）
+    },
+	chromecast:true,
+    autoplay: true,
+    theme: '#b7daff', // 主题颜色
+  });
+
+  // 获取页面元素
+  const fileList = document.getElementById('fileList');
+  const speedSlider = document.getElementById('speed-slider');
+  const currentSpeed = document.getElementById('current-speed');
+  
+  const rewindSpeed = document.getElementById('rewind-speed');
+  const currentRewind = document.getElementById('current-rewind');
+
+  // 加载视频列表
+  function loadVideoList() {
+    fetch("api/videos")
+      .then(response => response.json())
+      .then(data => {
+        data.forEach(filename => {
+          if (filename.endsWith(".mp4")) {
+            const option = document.createElement("option");
+            option.value = filename;
+            option.text = filename;
+            fileList.appendChild(option);
+          }
+        });
+      })
+      .catch(error => {
+        console.error("Error fetching video list:", error);
+        alert("Failed to load video list. Check the console for errors.");
+      });
+  }
+
+  // 切换视频时加载新视频
+  fileList.addEventListener("change", function () {
+    const selectedVideo = fileList.value;
+    dp.switchVideo({
+      url: selectedVideo,
+    });
+    dp.play();
+    console.log(`Switched to video: ${selectedVideo}`);
+  });
+
+  // 滑动条控制播放速度
+  speedSlider.addEventListener("input", function () {
+    const speed = parseFloat(speedSlider.value); // 获取当前滑动条的值
+    dp.speed(speed); // 设置播放速度
+    currentSpeed.textContent = `${speed.toFixed(1)}x`; // 更新显示的速度
+    console.log(`Playback speed changed to: ${speed}x`);
+  });
+
+
+  // 滑动条控制
+  rewindSpeed.addEventListener("input", function () {
+    const speed = parseInt(rewindSpeed.value);
+	//dp.seek(dp.video.currentTime - Math.abs(speed));
+	document.getElementById('dplayer').focus()
+    currentRewind.textContent = `${speed.toFixed(0)}`;
+    console.log(`Playback rewind changed to: ${speed}`);
+	
+	console.log(dp.video.currentTime)
+  });
+
+// 键盘事件：左右方向键控制快进/快退
+  document.addEventListener("keydown", function (event) {
+    const rewindSeconds = parseInt(rewindSpeed.value);
+	console.log("--",rewindSeconds)
+
+    switch (event.key) {
+      case "ArrowLeft":
+        dp.seek(dp.video.currentTime - Math.abs(rewindSeconds));
+        break;
+      case "ArrowRight":
+        dp.seek(dp.video.currentTime + Math.abs(rewindSeconds));
+        break;
+    }
+    console.log(`Current time: ${dp.video.currentTime}`);
+  });
+  
+  // 页面加载时初始化视频列表
+  window.onload = loadVideoList;
+
+  // 重写 console.log 方法以输出到页面
+  const consoleOutput = document.getElementById('console-output');
+  const originalConsoleLog = console.log;
+  console.log = function (...messages) {
+    // 调用原始的 console.log 方法
+    originalConsoleLog.apply(console, messages);
+
+    // 将消息追加到页面的输出区域
+    const logMessage = messages.map(message => String(message)).join(' ');
+    const logElement = document.createElement('div');
+    logElement.textContent = logMessage;
+    consoleOutput.appendChild(logElement);
+  };
+</script>
+
+</body>
+</html>

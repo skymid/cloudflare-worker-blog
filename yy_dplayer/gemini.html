@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vue2 + DPlayer + Element UI</title>
+  <link rel="stylesheet" href="js/element.css">
+  <link rel="stylesheet" href="js/DPlayer.min.css">
+  <style>
+    /* General styles */
+    body {
+      font-family: sans-serif;
+    }
+
+    /* Player styles */
+    #dplayer {
+      width: 90%;
+      margin: 0 auto;
+      position: relative;
+
+    }
+
+    /* Element UI overrides */
+    .el-form {
+      width: 90%;
+      margin: 10px auto;
+    }
+
+    /* Instructions styles */
+    .video-instructions { /* Replaced .jj with a more descriptive class */
+      width: 90%;
+      margin: 10px auto;
+    }
+
+    .el-progress {
+      width: 90%;
+      margin: 10px auto;
+    }
+
+    /* Slide hint styles */
+    .slide-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: rgb(255, 255, 255);
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 16px;
+      display: none;
+    }
+
+    .slide-hint.show {
+      display: block;
+    }
+
+    /* Responsive styles */
+    @media (max-width: 600px) {
+      .el-col {
+        width: 100%;
+        margin-bottom: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <el-alert :title="selectedVideo" type="success"></el-alert>
+
+  <!-- 播放器容器 -->
+  <div id="dplayer" ref="playerContainer">
+    <div v-if="showSlideHint" class="slide-hint">{{ slideHintText }}</div> <!-- Use v-if -->
+  </div>
+
+  <el-progress
+    :percentage="progressPercentage"
+    :format="formatProgress" :status="progressStatus"
+    :stroke-width="25" text-color="#fffff"
+    :text-inside="true">
+  </el-progress>
+
+  <!-- 视频列表选择 -->
+  <el-form ref="form" :model="form" label-width="70px" v-loading="loading">
+    <el-row style="padding: 0px;">
+      <el-col :span="4">
+        <el-form-item label="列表：">
+          <el-select v-model="selectedVideo" placeholder="请选择视频" @change="changeVideo">
+            <el-option
+              v-for="(video, index) in videoList"
+              :key="index"
+              :label="video"
+              :value="video">
+            </el-option>
+          </el-select>
+        </el-form-item>
+      </el-col>
+      <!-- 播放速度调节 -->
+      <el-col :span="8">
+        <el-form-item label="速度：">
+          <el-slider show-stops show-input show-input-controls="false"
+                     v-model="playbackRate"
+                     :min="-5" :max="10" :step="0.5"
+                     @input="updatePlaybackRate">
+          </el-slider>
+        </el-form-item>
+      </el-col>
+      <!-- 快进控制 -->
+      <el-col :span="12">
+        <el-form-item label="进/退：">
+          <el-slider show-stops show-input
+                     v-model="seekTime"
+                     :min="5" :max="90" :step="5"
+                     @input="seekVideo">
+          </el-slider>
+        </el-form-item>
+      </el-col>
+    </el-row>
+  </el-form>
+  <div class="video-instructions"> <!-- Replaced .jj with a more descriptive class -->
+
+    全屏模式<br>
+    双击视频中间区域：进入或退出全屏模式。<br><br>
+
+    快进/快进<br>
+    向右划动或 → ：快进（以“进/退”滑块设置的时间为步长）。<br>
+    向左划动或 ← ：快退（以“进/退”滑块设置的时间为步长）。<br><br>
+
+    切换视频<br>
+    双击左侧区域：切换到上一个视频。<br>
+    双击右侧区域：切换到下一个视频。<br>
+    使用下拉菜单：在控制面板的“列表”中选择视频。<br><br>
+
+    调整音量<br>
+    滑动操作：在视频区域向上滑增大音量，向下滑减小音量，屏幕会显示音量百分比。<br><br>
+
+    调节播放速度<br>
+    滑块操作：在控制面板的“速度”滑块调整播放速度（范围：-5x - 10x）。<br><br>
+
+    调节快进/快退<br>
+    滑块操作：在控制面板的“进/退”滑块调整跳转速度（范围：5 - 90）。<br><br>
+
+  </div>
+</div>
+<script src="js/vue.js"></script>
+<script src="js/element.js"></script>
+<script src="js/DPlayer.min.js"></script>
+<script>
+  new Vue({
+    el: '#app',
+    data() {
+      return {
+        form: {},
+        player: null,
+        selectedVideo: '',
+        playbackRate: 1,
+        seekTime: 10,
+        videoList: [],
+        currentTime: 0,
+        totalTime: 0,
+        loading: false,
+        touchStartX: 0,
+        touchStartY: 0,
+        touchDeltaX: 0,
+        touchDeltaY: 0,
+        isSliding: false,
+        lastTapTime: 0,
+        tapCount: 0,
+        currentVolume: 0.5,
+        isFullScreen: false,
+        wasPlaying: false,
+        doubleTapTimeout: null,
+        progressStatus:"success",
+        showSlideHint: false,  // Control visibility of slide hint
+        slideHintText: '', // Text for slide hint
+      };
+    },
+    computed: {
+      progressPercentage() {
+        return this.totalTime > 0 ? (this.currentTime / this.totalTime) * 100 : 0;
+      },
+    },
+    mounted() {
+      this.loadVideoList();
+      this.addKeyboardListeners();
+      this.addTouchListeners();
+      this.addMouseListeners();
+    },
+    methods: {
+      initDPlayer() {
+        this.player = new DPlayer({
+          container: this.$refs.playerContainer, // Access the element using $refs
+          video: {
+            url: this.selectedVideo,
+            pic: '',
+            type: 'auto',
+          },
+          autoplay: true,
+          theme: '#b7daff',
+          loop: true,
+          lang: 'zh-cn',
+          screenshot: true,
+          hotkey: true,
+        });
+
+        this.player.on('timeupdate', () => {
+          this.currentTime = this.player.video.currentTime;
+          this.totalTime = this.player.video.duration || 0;
+        });
+
+        this.player.on('loadedmetadata', () => {
+          this.totalTime = this.player.video.duration || 0;
+          this.currentVolume = this.player.video.volume;
+        });
+
+        this.player.on('ended', () => {
+          this.currentTime = this.totalTime;
+        });
+
+        this.player.on('error', () => {
+          this.$message.error("视频加载失败，请检查网络或视频源");
+        });
+      },
+      loadVideoList() {
+        this.loading = true;
+        fetch("api/videos")
+          .then(response => response.json())
+          .then(data => {
+            this.videoList = data;
+            if (data.length > 0) {
+              this.selectedVideo = data[0];
+              this.initDPlayer();
+            }
+          })
+          .catch(error => {
+            console.error("加载视频列表失败:", error);
+            this.$message.error("加载视频列表失败，请稍后重试");
+          })
+          .finally(() => {
+            this.loading = false;
+          });
+      },
+      changeVideo(url) {
+        this.loading = true;
+        this.player.switchVideo({ url });
+        this.player.play();
+        this.loading = false;
+      },
+      updatePlaybackRate(rate) {
+        if (this.player && this.player.video) {
+          this.player.speed(rate);
+        }
+      },
+      seekVideo(timeDelta) {
+        if (this.player && this.player.video) {
+          const newTime = Math.max(0, Math.min(this.player.video.duration, this.player.video.currentTime + timeDelta));
+          this.player.seek(newTime);
+          this.currentTime = newTime;
+        }
+      },
+      switchToNextVideo() {
+        clearTimeout(this.doubleTapTimeout);
+        const currentIndex = this.videoList.indexOf(this.selectedVideo);
+        const nextIndex = (currentIndex + 1) % this.videoList.length;
+        const nextVideo = this.videoList[nextIndex];
+        this.selectedVideo = nextVideo;
+        this.changeVideo(nextVideo);
+        this.$message.success(`已切换到下一个视频：${nextVideo}`);
+      },
+      switchToPreviousVideo() {
+        clearTimeout(this.doubleTapTimeout);
+        const currentIndex = this.videoList.indexOf(this.selectedVideo);
+        const prevIndex = currentIndex === 0 ? this.videoList.length - 1 : currentIndex - 1;
+        const prevVideo = this.videoList[prevIndex];
+        this.selectedVideo = prevVideo;
+        this.changeVideo(prevVideo);
+        this.$message.success(`已切换到上一个视频：${prevVideo}`);
+      },
+      togglePlayPause() {
+        console.log("togglePlayPause");
+        if (this.player.video.paused) {
+          this.player.play();
+          this.progressStatus="success";
+        } else {
+          this.player.pause();
+          this.progressStatus="warning";
+        }
+      },
+      adjustVolume(delta) {
+        if (this.player) {
+          this.currentVolume = Math.max(0, Math.min(1, this.currentVolume + delta));
+          this.player.volume(this.currentVolume);
+        }
+      },
+      addKeyboardListeners() {
+        document.addEventListener('keydown', (event) => {
+          //event.preventDefault();
+          console.log(event.key);
+          let seekTimeValue = this.seekTime - 5; // Consistent variable name
+          if (event.key === 'ArrowLeft') {
+            this.seekVideo(-seekTimeValue);
+            this.showSeekHint(-seekTimeValue); // showSeekHint needs to be called with the actual seek amount
+          } else if (event.key === 'ArrowRight') {
+            this.seekVideo(seekTimeValue);
+            this.showSeekHint(seekTimeValue); // showSeekHint needs to be called with the actual seek amount
+          } else if (event.key === 'PageUp') {
+            this.switchToPreviousVideo();
+          } else if (event.key === 'PageDown') {
+            this.switchToNextVideo()
+          }
+        });
+      },
+      addMouseListeners() {
+        const playerContainer = this.$refs.playerContainer;
+
+        playerContainer.addEventListener('dblclick', (event) => {
+          const screenWidth = window.innerWidth;
+          const clickX = event.clientX;
+          const leftThreshold = screenWidth / 3;
+          const rightThreshold = 2 * screenWidth / 3;
+
+          if (clickX < leftThreshold) {
+            this.switchToPreviousVideo();
+            return;
+          }
+          if (clickX > rightThreshold) {
+            this.switchToNextVideo();
+            return;
+          }
+          if (clickX >= leftThreshold && clickX <= rightThreshold) {
+            if (this.isFullScreen) {
+              this.player.fullScreen.cancel('browser');
+            } else {
+              this.player.fullScreen.request('browser');
+            }
+            this.isFullScreen = !this.isFullScreen;
+          }
+        });
+
+        playerContainer.addEventListener('wheel', (event) => {
+          event.preventDefault();
+          const delta = Math.sign(event.deltaY);
+          const seekAmount = delta * this.seekTime;
+          this.seekVideo(seekAmount);
+          this.showSeekHint(seekAmount); // showSeekHint needs to be called with the actual seek amount
+        });
+      },
+      addTouchListeners() {
+        const playerContainer = this.$refs.playerContainer;
+
+        playerContainer.addEventListener('touchstart', (event) => {
+          const touch = event.touches[0];
+          this.touchStartX = touch.clientX;
+          this.touchStartY = touch.clientY;
+          const currentTime = new Date().getTime();
+          const screenWidth = window.innerWidth;
+
+          if (currentTime - this.lastTapTime < 300) {
+            this.tapCount++;
+          } else {
+            this.tapCount = 1;
+          }
+          this.lastTapTime = currentTime;
+
+          this.wasPlaying = !this.player.video.paused;
+
+          if (this.tapCount === 2 && this.touchStartX > screenWidth / 3 && this.touchStartX < (2 * screenWidth / 3)) {
+            this.togglePlayPause();
+            this.tapCount = 0;
+            return;
+          }
+
+          if (this.tapCount === 1 && this.touchStartX > screenWidth / 3 && this.touchStartX < (2 * screenWidth / 3)) {
+            clearTimeout(this.doubleTapTimeout);
+            this.doubleTapTimeout = setTimeout(() => {
+              if (this.tapCount === 1 && !this.isSliding) {
+                this.togglePlayPause();
+                this.tapCount = 0;
+              }
+            }, 300);
+          }
+
+          if (this.tapCount === 2 && this.touchStartX >= (2 * screenWidth / 3)) {
+            clearTimeout(this.doubleTapTimeout);
+            this.doubleTapTimeout = setTimeout(() => {
+              this.switchToNextVideo();
+              this.tapCount = 0;
+            }, 300);
+          }
+
+          if (this.tapCount === 2 && this.touchStartX < screenWidth / 3) {
+            clearTimeout(this.doubleTapTimeout);
+            this.doubleTapTimeout = setTimeout(() => {
+              this.switchToPreviousVideo();
+              this.tapCount = 0;
+            }, 300);
+          }
+        });
+
+        playerContainer.addEventListener('touchmove', (event) => {
+          const touch = event.touches[0];
+          this.touchDeltaX = touch.clientX - this.touchStartX;
+          this.touchDeltaY = touch.clientY - this.touchStartY;
+          const screen = { width: window.innerWidth, height: window.innerHeight };
+
+          // 判断是水平滑动（快进/快退）还是垂直滑动（音量调节）
+          if (Math.abs(this.touchDeltaX) > Math.abs(this.touchDeltaY) && Math.abs(this.touchDeltaX) > 10) {
+            this.isSliding = true;
+            const seekAmount = (this.touchDeltaX / screen.width) * this.seekTime * 2; // 根据滑动距离计算快进/快退时间
+            this.seekVideo(seekAmount);
+            this.showSeekHint(seekAmount); //showSeekHint needs to be called with the actual seek amount
+          } else if (Math.abs(this.touchDeltaY) > Math.abs(this.touchDeltaX) && Math.abs(this.touchDeltaY) > 10) {
+            // 处理垂直滑动（控制音量）
+            if (this.touchDeltaY < 0) {
+              this.adjustVolume(0.01);
+              this.showVolumeHint(this.currentVolume); // use showVolumeHint
+            } else if (this.touchDeltaY > 0) {
+              this.adjustVolume(-0.01);
+              this.showVolumeHint(this.currentVolume); // use showVolumeHint
+            }
+          }
+        });
+
+        playerContainer.addEventListener('touchend', () => {
+          this.isSliding = false;
+          this.touchDeltaX = 0;
+          this.touchDeltaY = 0;
+        });
+      },
+      formatTime(seconds) {
+        if (isNaN(seconds)) return "00:00:00";
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const remainingSeconds = Math.floor(seconds % 60);
+        const pad = (num) => (num < 10 ? `0${num}` : num);
+        return `${pad(hours)}:${pad(minutes)}:${pad(remainingSeconds)}`;
+      },
+      formatProgress(percentage) {
+        return `${this.formatTime(this.currentTime)} / ${this.formatTime(this.totalTime)}`;
+      },
+      showSeekHint(seekTime) {
+        // Simplified showSeekHint
+        const direction = seekTime > 0 ? '快进' : '快退';
+        const absTime = Math.abs(seekTime);
+        this.slideHintText = `${direction}${absTime}秒`;
+        this.showSlideHint = true;
+
+        setTimeout(() => {
+          this.showSlideHint = false;
+        }, 1000);
+      },
+      showVolumeHint(volume) {
+        this.slideHintText = `音量：${Math.round(volume * 100)}%`;
+        this.showSlideHint = true;
+
+        setTimeout(() => {
+          this.showSlideHint = false;
+        }, 1000);
+      },
+    },
+  });
+</script>
+</body>
+</html>
